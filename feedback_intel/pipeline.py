@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,10 +12,24 @@ from .fetchers.google_play import fetch_google_play_reviews
 from .sentiment import analyze_sentiment
 
 
+def _safe_json(val) -> str | None:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    try:
+        return json.dumps(val, ensure_ascii=False, default=str)
+    except Exception:
+        return json.dumps(str(val), ensure_ascii=False)
+
+
 def _enrich(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
+
     tmp = df.copy()
+
+    if "raw" in tmp.columns:
+        tmp["raw"] = tmp["raw"].map(_safe_json)
+
     tmp["text"] = tmp["text"].fillna("").astype(str)
 
     sentiments = tmp["text"].map(analyze_sentiment)
@@ -26,6 +41,7 @@ def _enrich(df: pd.DataFrame) -> pd.DataFrame:
     tmp["fetched_at"] = pd.to_datetime(tmp["fetched_at"], utc=True, errors="coerce").dt.tz_convert("UTC")
     tmp["created_date"] = tmp["created_at"].dt.date.astype(str)
     tmp["week"] = tmp["created_at"].dt.to_period("W").astype(str)
+
     return tmp
 
 
@@ -65,5 +81,5 @@ def build_dataset(
     out = pd.concat(frames, ignore_index=True)
     if "fetched_at" not in out.columns:
         out["fetched_at"] = datetime.now(timezone.utc).isoformat()
-    return _enrich(out)
 
+    return _enrich(out)
